@@ -221,3 +221,5 @@ __marimo__/
 /venv/
 *.pyc
 *.txt
+
+/market_vault/

@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
 import pandas as pd
-from data_intepretor import MarketEvaluator # Ensure the filename matches yours
+#from data_intepretor import MarketEvaluator # Ensure the filename matches yours
 
 class TickerSeries:
     def __init__(self, ticker, df, parent_axis, mode="line"):
@@ -17,9 +17,14 @@ class TickerSeries:
 
     def _create_series(self):
         x = list(range(len(self.df)))
-        dpg.add_line_series(x, self.df['Close'].tolist(), label=self.ticker, tag=self.line_tag, parent=self.parent_axis)
-        dpg.add_candle_series(x, self.df['Open'].tolist(), self.df['Close'].tolist(), 
-                              self.df['Low'].tolist(), self.df['High'].tolist(), tag=self.candle_tag, parent=self.parent_axis)
+        # .squeeze() converts a 1-column DataFrame into a Series
+        close_list = self.df['Close'].squeeze().tolist()
+        open_list = self.df['Open'].squeeze().tolist()
+        low_list = self.df['Low'].squeeze().tolist()
+        high_list = self.df['High'].squeeze().tolist()
+
+        dpg.add_line_series(x, close_list, label=self.ticker, tag=self.line_tag, parent=self.parent_axis)
+        dpg.add_candle_series(x, open_list, close_list, low_list, high_list, tag=self.candle_tag, parent=self.parent_axis)
 
     def _setup_theme(self):
         if not dpg.does_item_exist(self.theme_tag):
@@ -43,7 +48,7 @@ class DataVisualizer:
         self.tickers = tickers
         self.view_mode = "overlay" 
         self.series_mode = "line"
-        self.evaluator = MarketEvaluator(self.df)
+        self.evaluator = None
         
         self.create_window()
         
@@ -61,36 +66,36 @@ class DataVisualizer:
                 self.rebuild_plots()
 
         # SIDE EVALUATOR WINDOW
-        diag = self.evaluator.get_market_diagnosis()
-        with dpg.window(label="Control Center", width=400, height=800, pos=[1105, 0]):
-            dpg.add_text("MARKET EVALUATION", color=[0, 255, 0])
-            dpg.add_separator()
+    #     diag = self.evaluator.get_market_diagnosis()
+    #     with dpg.window(label="Control Center", width=400, height=800, pos=[1105, 0]):
+    #         dpg.add_text("MARKET EVALUATION", color=[0, 255, 0])
+    #         dpg.add_separator()
             
-            dpg.add_text(f"Status: {diag['status']}", tag="eval_status")
-            dpg.add_text(f"Score: {diag['score']}", tag="eval_score")
-            dpg.add_separator()
+    #         dpg.add_text(f"Status: {diag['status']}", tag="eval_status")
+    #         dpg.add_text(f"Score: {diag['score']}", tag="eval_score")
+    #         dpg.add_separator()
             
-            dpg.add_text("PREDICTION (1 WEEK):", color=[255, 200, 0])
-            dpg.add_text(diag['prediction'], tag="eval_pred", wrap=380)
+    #         dpg.add_text("PREDICTION (1 WEEK):", color=[255, 200, 0])
+    #         dpg.add_text(diag['prediction'], tag="eval_pred", wrap=380)
             
-            dpg.add_spacing(count=5)
-            dpg.add_text("LOGIC FOUNDATION:")
-            dpg.add_text("\n".join([f"- {m}" for m in diag['logic']]), tag="eval_logic", wrap=380)
+    #         dpg.add_spacing(count=5)
+    #         dpg.add_text("LOGIC FOUNDATION:")
+    #         dpg.add_text("\n".join([f"- {m}" for m in diag['logic']]), tag="eval_logic", wrap=380)
 
-            dpg.add_spacing(count=10)
-            dpg.add_button(label="RE-EVALUATE", callback=self.update_eval)
+    #         dpg.add_spacing(count=10)
+    #         dpg.add_button(label="RE-EVALUATE", callback=self.update_eval)
 
-    def update_eval(self):
-        diag = self.evaluator.get_market_diagnosis()
+    # def update_eval(self):
+    #     diag = self.evaluator.get_market_diagnosis()
         
-        # NEW: Find the single highest correlated ticker
-        corr_matrix = self.df.xs('Close', axis=1, level=0).pct_change().corr()
-        leader = corr_matrix['BTC-USD'].sort_values(ascending=False).index[1] # [1] because [0] is BTC itself
+    #     # NEW: Find the single highest correlated ticker
+    #     corr_matrix = self.df.xs('Close', axis=1, level=0).pct_change().corr()
+    #     leader = corr_matrix['BTC-USD'].sort_values(ascending=False).index[1] # [1] because [0] is BTC itself
         
-        dpg.set_value("eval_status", f"Current Market Leader: {leader}")
-        dpg.set_value("eval_score", f"Engine Eval: {diag['score']}")
-        dpg.set_value("eval_pred", diag['prediction'])
-        dpg.set_value("eval_logic", "\n".join(diag['logic']))
+    #     dpg.set_value("eval_status", f"Current Market Leader: {leader}")
+    #     dpg.set_value("eval_score", f"Engine Eval: {diag['score']}")
+    #     dpg.set_value("eval_pred", diag['prediction'])
+    #     dpg.set_value("eval_logic", "\n".join(diag['logic']))
     def switch_layout(self):
         self.view_mode = "grid" if self.view_mode == "overlay" else "overlay"
         self.rebuild_plots()
@@ -100,27 +105,40 @@ class DataVisualizer:
         for obj in self.ticker_objects:
             obj.toggle_mode(self.series_mode)
 
-    def rebuild_plots(self):
-        if dpg.does_item_exist("PlotContainer"):
-            dpg.delete_item("PlotContainer", children_only=True)
-        
-        self.ticker_objects = []
-        if self.view_mode == "overlay":
-            with dpg.plot(parent="PlotContainer", height=-1, width=-1):
-                dpg.add_plot_legend()
-                x_ax = dpg.add_plot_axis(dpg.mvXAxis, label="Days")
-                y_ax = dpg.add_plot_axis(dpg.mvYAxis, label="Change (%)")
-                for t in self.tickers:
-                    raw_data = self.df.xs(t, axis=1, level=1)
-                    norm_data = (raw_data / raw_data['Close'].iloc[0]) * 100
-                    self.ticker_objects.append(TickerSeries(t, norm_data, y_ax, mode=self.series_mode))
-        else:
-            for t in self.tickers:
-                with dpg.plot(parent="PlotContainer", height=300, width=-1):
-                    dpg.add_plot_axis(dpg.mvXAxis)
-                    y_ax = dpg.add_plot_axis(dpg.mvYAxis, label=f"{t} ($)")
-                    self.ticker_objects.append(TickerSeries(t, self.df.xs(t, axis=1, level=1), y_ax, mode=self.series_mode))
 
+    def rebuild_plots(self):
+            if dpg.does_item_exist("PlotContainer"):
+                dpg.delete_item("PlotContainer", children_only=True)
+            
+            self.ticker_objects = []
+            if self.view_mode == "overlay":
+                with dpg.plot(parent="PlotContainer", height=-1, width=-1):
+                    dpg.add_plot_legend()
+                    x_ax = dpg.add_plot_axis(dpg.mvXAxis, label="Days")
+                    y_ax = dpg.add_plot_axis(dpg.mvYAxis, label="Change (%)")
+                    for t in self.tickers:
+                        # 1. Extract ticker data (preserving the MultiIndex level initially)
+                        raw_data = self.df.xs(t, axis=1, level=1).copy()
+                        
+                        # 2. Flatten columns to ensure raw_data['Close'] is a Series
+                        if isinstance(raw_data.columns, pd.MultiIndex):
+                            raw_data.columns = raw_data.columns.get_level_values(0)
+                        
+                        # 3. Normalize and create series
+                        norm_data = (raw_data / raw_data['Close'].iloc[0]) * 100
+                        self.ticker_objects.append(TickerSeries(t, norm_data, y_ax, mode=self.series_mode))
+            else:
+                for t in self.tickers:
+                    with dpg.plot(parent="PlotContainer", height=300, width=-1):
+                        dpg.add_plot_axis(dpg.mvXAxis)
+                        y_ax = dpg.add_plot_axis(dpg.mvYAxis, label=f"{t} ($)")
+                        
+                        # Apply the same flattening fix for grid view[cite: 1, 2]
+                        raw_data = self.df.xs(t, axis=1, level=1).copy()
+                        if isinstance(raw_data.columns, pd.MultiIndex):
+                            raw_data.columns = raw_data.columns.get_level_values(0)
+                            
+                        self.ticker_objects.append(TickerSeries(t, raw_data, y_ax, mode=self.series_mode))
     def run(self):
         while dpg.is_dearpygui_running():
             dpg.render_dearpygui_frame()
